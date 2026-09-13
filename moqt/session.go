@@ -89,7 +89,12 @@ type Session struct {
 	incomingProbeStream transport.Stream
 	probeTargetsCh      chan ProbeResult
 
+	// counters optionally points to the Server accept pipeline counters.
+	counters *ServerCounters
+
 	bitrateTracker bitrateTracker
+
+	probeMonitorOnce sync.Once // starts the bitrate monitor lazily (only when a probe stream arrives)
 }
 
 func newSession(
@@ -101,6 +106,7 @@ func newSession(
 	onGoaway func(newSessionURI string),
 	logger *slog.Logger,
 	setup sessionSetup,
+	counters *ServerCounters,
 ) *Session {
 	if mux == nil {
 		mux = DefaultMux
@@ -122,10 +128,7 @@ func newSession(
 		peerSetupCh:     make(chan struct{}),
 		probeResponseCh: make(chan ProbeResult, 1), // latest-value semantics
 		probeTargetsCh:  make(chan ProbeResult, 1), // latest-value semantics
-		bitrateTracker: bitrateTracker{
-			maxAge:   config.probeMaxAge(),
-			maxDelta: config.probeMaxDelta(),
-		},
+		counters:        counters,
 	}
 
 	// When the native-QUIC router has already consumed the peer's Setup Stream
@@ -143,13 +146,12 @@ func newSession(
 		manager.addConn(conn)
 	}
 
-	if provider, ok := conn.(probeStatsProvider); ok {
+	provider, _ := conn.(probeStatsProvider)
+	sess.bitrateTracker = newBitrateTracker(config, provider)
+	if provider != nil {
 		// The bitrate tracker can measure and report the current sending
 		// rate, so advertise the Report capability in SETUP.
 		sess.localProbeLevel = message.ProbeLevelReport
-		sess.wg.Go(func() {
-			sess.detectBitrateChanges(provider)
-		})
 	}
 
 	// Advertise capabilities on the mandatory Setup Stream.
@@ -500,6 +502,9 @@ func (s *Session) Fetch(req *FetchRequest) (*GroupReader, error) {
 		return nil, fmt.Errorf("failed to open stream for fetch: %w", err)
 	}
 
+	urgency, incremental := urgencyFor(req.Priority)
+	stream.SetPriority(urgency, incremental)
+
 	err = message.StreamTypeFetch.Encode(stream)
 	if err != nil {
 		if strErr, ok := errors.AsType[*transport.StreamError](err); ok && strErr.Remote {
@@ -743,6 +748,10 @@ func (sess *Session) handleBiStreams() {
 			return
 		}
 
+		if sess.counters != nil {
+			sess.counters.BiStreamAccepts.Add(1)
+		}
+
 		// Handle the stream. Tracked on sess.wg so CloseWithError joins in-flight
 		// stream handlers before closing the probe channels (avoids send-on-close races).
 		sess.wg.Go(func() {
@@ -823,12 +832,17 @@ func (sess *Session) handleSubscribeStream(stream transport.Stream) {
 	var sm message.SubscribeMessage
 	err := sm.Decode(stream)
 	if err != nil {
+		if sess.counters != nil {
+			sess.counters.SubscribeErrors.Add(1)
+		}
 		sess.logError("failed to decode SUBSCRIBE message", err)
 		cancelStreamWithError(stream, transport.StreamErrorCode(SubscribeErrorCodeInternal))
 		return
 	}
 
-	// Create a receiveSubscribeStream with fields decoded from SUBSCRIBE message
+	if sess.counters != nil {
+		sess.counters.SubscribesReceived.Add(1)
+	}
 	config := &SubscribeConfig{
 		Priority:   TrackPriority(sm.SubscriberPriority),
 		Ordered:    boolFromWireFlag(sm.SubscriberOrdered),
@@ -855,6 +869,10 @@ func (sess *Session) handleSubscribeStream(stream transport.Stream) {
 		func() { sess.removeTrackWriter(SubscribeID(sm.SubscribeID)) },
 	)
 	sess.addTrackWriter(SubscribeID(sm.SubscribeID), track)
+
+	if sess.counters != nil {
+		sess.counters.SubscribesServed.Add(1)
+	}
 
 	sess.mux.serveTrack(track)
 
@@ -994,6 +1012,11 @@ func (sess *Session) handleFetchStream(stream transport.Stream) {
 		ctx:           stream.Context(),
 	}
 
+	// Priority is per-endpoint and not negotiated, so the requester's call on
+	// its own end does not cover the response data written from this side.
+	urgency, incremental := urgencyFor(req.Priority)
+	stream.SetPriority(urgency, incremental)
+
 	group := newGroupWriter(stream, req.GroupSequence, nil)
 
 	stop := context.AfterFunc(req.Context(), func() {
@@ -1101,6 +1124,9 @@ func (sess *Session) handleProbeStream(stream transport.Stream) error {
 	sess.incomingProbeStream = stream
 	sess.incomingProbeMu.Unlock()
 
+	// Lazily start the bitrate monitor the first time a peer opens a probe stream.
+	sess.startProbeMonitorOnce()
+
 	defer func() {
 		sess.incomingProbeMu.Lock()
 		if sess.incomingProbeStream == stream {
@@ -1152,6 +1178,19 @@ func (sess *Session) notifyTargets(bitrate uint64) {
 	}
 }
 
+// startProbeMonitorOnce starts the bitrate monitor goroutine the first time a
+// peer opens a probe stream to this session. Sessions that are never probed
+// (the common subscriber case in high-fan-out) never start it — one fewer
+// goroutine per session, preserving EstimatedBitrate via lazy Stats() sampling.
+func (sess *Session) startProbeMonitorOnce() {
+	sess.probeMonitorOnce.Do(func() {
+		if sess.bitrateTracker.provider != nil {
+			sess.bitrateTracker.monitorRunning.Store(true)
+			sess.wg.Go(func() { sess.detectBitrateChanges(sess.bitrateTracker.provider) })
+		}
+	})
+}
+
 func (sess *Session) detectBitrateChanges(provider probeStatsProvider) {
 	sess.bitrateTracker.monitor(sess.ctx, sess.config.probeInterval(), provider, func(bitrate, rtt uint64) {
 		sess.incomingProbeMu.Lock()
@@ -1190,6 +1229,27 @@ type bitrateTracker struct {
 	estimatedBitrate atomic.Uint64
 	lastSentBitrate  atomic.Uint64
 	lastSentAt       time.Time
+
+	mu       sync.Mutex         // guards non-atomic fields (initialized, bytesSent, sampleTime, lastSentAt)
+	provider probeStatsProvider // connection-stats source; nil if the conn exposes none
+
+	// monitorRunning is set once the background monitor goroutine starts (a
+	// probe stream arrived). While set, the monitor owns the sampling baseline
+	// and keeps estimatedBitrate fresh, so getEstimatedBitrate reads it
+	// passively instead of sampling — otherwise a Stats() call would consume the
+	// monitor's byte-delta window and understate its next writeback to the prober.
+	monitorRunning atomic.Bool
+}
+
+// newBitrateTracker builds a tracker for a session. provider is nil when the
+// connection exposes no stats (some WebTransport conns, test fakes); such a
+// tracker stays inert — EstimatedBitrate stays zero and the monitor never runs.
+func newBitrateTracker(config *Config, provider probeStatsProvider) bitrateTracker {
+	return bitrateTracker{
+		maxAge:   config.probeMaxAge(),
+		maxDelta: config.probeMaxDelta(),
+		provider: provider,
+	}
 }
 
 func (t *bitrateTracker) monitor(ctx context.Context, interval time.Duration, provider probeStatsProvider, onProbe func(bitrate, rtt uint64)) {
@@ -1203,7 +1263,6 @@ func (t *bitrateTracker) monitor(ctx context.Context, interval time.Duration, pr
 		case now := <-ticker.C:
 			stats := provider.ConnectionStats()
 			bitrate, ok := t.next(stats, now)
-
 			if !ok {
 				continue
 			}
@@ -1215,25 +1274,31 @@ func (t *bitrateTracker) monitor(ctx context.Context, interval time.Duration, pr
 	}
 }
 
+// next takes one bitrate sample. It returns the measured bitrate and whether
+// to notify the prober (first sample, maxAge elapsed, or a large-enough
+// delta). measureBitrate already stored estimatedBitrate, so notifying only
+// advances the throttle bookkeeping that gates how often we write back to the
+// prober.
 func (t *bitrateTracker) next(stats quic.ConnectionStats, now time.Time) (uint64, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	bitrate := t.measureBitrate(stats, now)
 
-	if t.lastSentAt.IsZero() {
-		t.record(bitrate, now)
-		return bitrate, true
+	notify := t.lastSentAt.IsZero() ||
+		now.Sub(t.lastSentAt) >= t.maxAge ||
+		hasDelta(t.lastSentBitrate.Load(), bitrate, t.maxDelta)
+	if notify {
+		t.lastSentBitrate.Store(bitrate)
+		t.lastSentAt = now
 	}
-
-	lastSentBitrate := t.lastSentBitrate.Load()
-	if now.Sub(t.lastSentAt) >= t.maxAge ||
-		hasDelta(lastSentBitrate, bitrate, t.maxDelta) {
-		t.record(bitrate, now)
-		return bitrate, true
-	}
-
-	return bitrate, false
+	return bitrate, notify
 }
 
+// record stores a bitrate sample from outside the monitor loop (e.g. a
+// peer-reported PROBE result) and locks t.mu itself, so callers need not.
 func (t *bitrateTracker) record(bitrate uint64, now time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.estimatedBitrate.Store(bitrate)
 	t.lastSentBitrate.Store(bitrate)
 	t.lastSentAt = now
@@ -1266,7 +1331,27 @@ func (t *bitrateTracker) measureBitrate(stats quic.ConnectionStats, now time.Tim
 }
 
 func (t *bitrateTracker) getEstimatedBitrate() uint64 {
-	return t.estimatedBitrate.Load()
+	// When the monitor goroutine is running it owns the sampling baseline and
+	// keeps estimatedBitrate fresh; read it passively so Stats() does not consume
+	// the monitor's byte-delta window. This also covers the nil-provider case
+	// (no monitor, no lazy sampling — estimatedBitrate stays whatever it was).
+	if t.provider == nil || t.monitorRunning.Load() {
+		return t.estimatedBitrate.Load()
+	}
+	// Lazy sampling: no monitor is running (a never-probed session), so compute
+	// EstimatedBitrate on demand from local connection stats — this replaces the
+	// eager background monitor for subscribers. Stats() is intended to be called
+	// at monitoring cadence, not per-frame: each call samples over the window
+	// elapsed since the last call, so very frequent polling yields noisy values.
+	now := time.Now()
+	stats := t.provider.ConnectionStats()
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	// measureBitrate updates estimatedBitrate directly. We deliberately do NOT
+	// call record() here: that would also mutate the monitor's probe-writeback
+	// throttle (lastSentAt/lastSentBitrate) and suppress responses to probers,
+	// which Stats() has no business touching.
+	return t.measureBitrate(stats, now)
 }
 
 func hasDelta(oldVal, newVal uint64, maxDelta float64) bool {

@@ -16,12 +16,8 @@ import (
 func newTrackWriterDropTestSender(t *testing.T) (*TrackWriter, *bytes.Buffer) {
 	t.Helper()
 
-	mockStream := &FakeQUICStream{}
-
 	var buf bytes.Buffer
-	mockStream.WriteFunc = func(p []byte) (int, error) {
-		return buf.Write(p)
-	}
+	mockStream := &FakeQUICStream{WriteTo: &buf}
 
 	substr := newReceiveSubscribeStream(SubscribeID(1), mockStream, &SubscribeConfig{})
 
@@ -56,14 +52,7 @@ func TestNewTrackWriter(t *testing.T) {
 }
 
 func TestTrackWriter_OpenGroup(t *testing.T) {
-	var acceptCalled bool
-
-	mockStream := &FakeQUICStream{
-		WriteFunc: func(b []byte) (int, error) {
-			acceptCalled = true
-			return len(b), nil
-		},
-	}
+	mockStream := &FakeQUICStream{}
 	substr := newReceiveSubscribeStream(SubscribeID(1), mockStream, &SubscribeConfig{})
 
 	openUniStreamFunc := func(_ context.Context) (transport.SendStream, error) {
@@ -79,7 +68,7 @@ func TestTrackWriter_OpenGroup(t *testing.T) {
 	group, err := sender.OpenGroup(context.Background())
 	assert.NoError(t, err, "OpenGroup should not return error")
 	assert.NotNil(t, group, "group should not be nil")
-	assert.True(t, acceptCalled, "accept function should be called")
+	assert.NotEmpty(t, mockStream.Written(), "SUBSCRIBE_OK should be written to the subscribe stream")
 	assert.Equal(t, GroupSequence(1), group.GroupSequence(), "first group should have sequence 1")
 }
 
@@ -126,13 +115,7 @@ func TestTrackWriter_OpenGroup_OpenGroupError(t *testing.T) {
 }
 
 func TestTrackWriter_OpenGroup_Success(t *testing.T) {
-	var acceptCalled bool
-	mockStream := &FakeQUICStream{
-		WriteFunc: func(b []byte) (int, error) {
-			acceptCalled = true
-			return len(b), nil
-		},
-	}
+	mockStream := &FakeQUICStream{}
 	substr := newReceiveSubscribeStream(SubscribeID(1), mockStream, &SubscribeConfig{})
 
 	openUniStreamFunc := func(_ context.Context) (transport.SendStream, error) {
@@ -148,12 +131,35 @@ func TestTrackWriter_OpenGroup_Success(t *testing.T) {
 	group, err := sender.OpenGroup(context.Background())
 	assert.NoError(t, err, "OpenGroup should not return error")
 	assert.NotNil(t, group, "group should not be nil")
-	assert.True(t, acceptCalled, "accept function should be called")
+	assert.NotEmpty(t, mockStream.Written(), "SUBSCRIBE_OK should be written to the subscribe stream")
 	assert.Equal(t, GroupSequence(1), group.GroupSequence(), "group sequence should be 1")
 
 	// Close the group to trigger removeGroup
 	err = group.Close()
 	assert.NoError(t, err)
+}
+
+func TestTrackWriter_OpenGroup_SetsPriority(t *testing.T) {
+	mockStream := &FakeQUICStream{}
+	substr := newReceiveSubscribeStream(SubscribeID(1), mockStream, &SubscribeConfig{Priority: 200})
+
+	var mockSendStream *FakeQUICSendStream
+	openUniStreamFunc := func(_ context.Context) (transport.SendStream, error) {
+		mockSendStream = &FakeQUICSendStream{}
+		return mockSendStream, nil
+	}
+
+	sender := newTrackWriter("/broadcastpath", "trackname", substr, openUniStreamFunc, func() {})
+
+	group, err := sender.OpenGroup(context.Background())
+	assert.NoError(t, err)
+	assert.NotNil(t, group)
+
+	wantUrgency, wantIncremental := urgencyFor(200)
+	gotUrgency, gotIncremental, ok := mockSendStream.LastPriority()
+	assert.True(t, ok, "SetPriority should have been called")
+	assert.Equal(t, wantUrgency, gotUrgency)
+	assert.Equal(t, wantIncremental, gotIncremental)
 }
 
 func TestTrackWriter_ContextCancellation(t *testing.T) {
@@ -612,8 +618,12 @@ func TestTrackWriter_FirstOpenGroupSendsSubscribeOk(t *testing.T) {
 	assert.Equal(t, uint64(1), okMsg.Group)
 }
 
-func TestTrackWriter_Updated(t *testing.T) {
-	mockStream := &FakeQUICStream{}
+func TestTrackWriter_ReadUpdate(t *testing.T) {
+	// A SUBSCRIBE_UPDATE waiting on the subscribe stream is returned by
+	// ReadUpdate and applied to the track's config.
+	buf := &bytes.Buffer{}
+	require.NoError(t, message.SubscribeUpdateMessage{SubscriberPriority: 9}.Encode(buf))
+	mockStream := &FakeQUICStream{ReadFrom: buf}
 	substr := newReceiveSubscribeStream(SubscribeID(1), mockStream, &SubscribeConfig{})
 
 	openUniStreamFunc := func(_ context.Context) (transport.SendStream, error) {
@@ -622,16 +632,19 @@ func TestTrackWriter_Updated(t *testing.T) {
 
 	sender := newTrackWriter("/broadcastpath", "trackname", substr, openUniStreamFunc, func() {})
 
-	ch := sender.Updated()
-	assert.NotNil(t, ch)
+	got, err := sender.ReadUpdate()
+	require.NoError(t, err)
+	assert.Equal(t, TrackPriority(9), got.Priority)
+	assert.Equal(t, TrackPriority(9), sender.TrackConfig().Priority)
+}
 
-	// The channel should not be closed initially
-	select {
-	case <-ch:
-		t.Fatal("Updated channel should not be signaled initially")
-	default:
-		// expected
-	}
+func TestTrackWriter_ReadUpdate_NilSubscribeStream(t *testing.T) {
+	// Defensive: a TrackWriter with no subscribe stream returns a terminal error
+	// so a caller's update loop exits rather than spinning.
+	w := &TrackWriter{}
+	got, err := w.ReadUpdate()
+	assert.ErrorIs(t, err, ErrClosedSession)
+	assert.Nil(t, got)
 }
 
 func TestTrackWriter_DropGroups_InvalidRange(t *testing.T) {
@@ -685,4 +698,46 @@ func TestTrackWriter_DropGroups_ContextCanceled(t *testing.T) {
 		ErrorCode:  SubscribeErrorCodeInternal,
 	})
 	assert.Error(t, err)
+}
+
+func TestTrackWriter_OpenGroup_GroupErrorStreamWriteFailures(t *testing.T) {
+	// A transport.StreamError from the group stream's writes must surface as a
+	// *GroupError wrapping it, from both encode sites in openGroupWithSequence.
+	newSender := func(writes []streamResult) *TrackWriter {
+		mockStream := &FakeQUICStream{}
+		substr := newReceiveSubscribeStream(SubscribeID(1), mockStream, &SubscribeConfig{})
+
+		openUniStreamFunc := func(_ context.Context) (transport.SendStream, error) {
+			return &FakeQUICSendStream{Writes: writes}, nil
+		}
+
+		return newTrackWriter("/broadcastpath", "trackname", substr, openUniStreamFunc, func() {})
+	}
+
+	t.Run("stream type encode fails", func(t *testing.T) {
+		streamErr := &transport.StreamError{StreamID: 4, ErrorCode: 7, Remote: true}
+		sender := newSender([]streamResult{{Err: streamErr}})
+
+		group, err := sender.OpenGroup(context.Background())
+		assert.Nil(t, group)
+
+		var groupErr *GroupError
+		require.ErrorAs(t, err, &groupErr)
+		assert.Same(t, streamErr, groupErr.StreamError)
+	})
+
+	t.Run("group header encode fails", func(t *testing.T) {
+		streamErr := &transport.StreamError{StreamID: 5, ErrorCode: 7, Remote: true}
+		sender := newSender([]streamResult{
+			{},               // stream-type prefix write succeeds...
+			{Err: streamErr}, // ...group header write fails
+		})
+
+		group, err := sender.OpenGroup(context.Background())
+		assert.Nil(t, group)
+
+		var groupErr *GroupError
+		require.ErrorAs(t, err, &groupErr)
+		assert.Same(t, streamErr, groupErr.StreamError)
+	})
 }

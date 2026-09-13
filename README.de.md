@@ -6,11 +6,11 @@
 
 Eine Go-Implementierung von Media over QUIC Transport (MOQT), die speziell die MOQ Lite-Spezifikation für effizientes Medien-Streaming über QUIC umsetzt.
 
-[![Go](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/go.yml/badge.svg)](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/go.yml)
-[![Lint](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/lint.yml/badge.svg)](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/lint.yml)
-[![moq-web CI](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/moq-web-ci.yml/badge.svg)](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/moq-web-ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/OkutaniDaichi0106/gomoqt.svg)](https://pkg.go.dev/github.com/OkutaniDaichi0106/gomoqt)
-[![codecov](https://codecov.io/gh/OkutaniDaichi0106/gomoqt/branch/main/graph/badge.svg?token=4LZCD3FEU3)](https://codecov.io/gh/OkutaniDaichi0106/gomoqt)
+[![Go](https://github.com/qumo-dev/gomoqt/actions/workflows/go.yml/badge.svg)](https://github.com/qumo-dev/gomoqt/actions/workflows/go.yml)
+[![Lint](https://github.com/qumo-dev/gomoqt/actions/workflows/lint.yml/badge.svg)](https://github.com/qumo-dev/gomoqt/actions/workflows/lint.yml)
+[![moq-web CI](https://github.com/qumo-dev/gomoqt/actions/workflows/moq-web-ci.yml/badge.svg)](https://github.com/qumo-dev/gomoqt/actions/workflows/moq-web-ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/qumo-dev/gomoqt.svg)](https://pkg.go.dev/github.com/qumo-dev/gomoqt)
+[![codecov](https://codecov.io/gh/qumo-dev/gomoqt/branch/main/graph/badge.svg?token=4LZCD3FEU3)](https://codecov.io/gh/qumo-dev/gomoqt)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/qumo-dev/gomoqt)
 
 ## Inhaltsverzeichnis
@@ -27,11 +27,11 @@ Eine Go-Implementierung von Media over QUIC Transport (MOQT), die speziell die M
 - [Danksagungen](#danksagungen)
 
 ## Übersicht
-Diese Implementierung folgt der [MOQ Lite-Spezifikation](https://www.ietf.org/archive/id/draft-lcurley-moq-lite-05.html) und ermöglicht den Aufbau einer Kommunikationsinfrastruktur für Echtzeit-Medien-Streaming-Anwendungen über QUIC.
+Diese Implementierung folgt der [MOQ Lite-Spezifikation](https://www.ietf.org/archive/id/draft-lcurley-moq-lite-04.html) und ermöglicht den Aufbau einer Kommunikationsinfrastruktur für Echtzeit-Medien-Streaming-Anwendungen über QUIC.
 
 ## Schnellstart
 ```bash
-# Mage installieren (Go 1.25+)
+# Mage installieren (Go 1.27+)
 go install github.com/magefile/mage@latest
 
 # Führen Sie den Interop-Test im Docker‑Container aus
@@ -54,8 +54,9 @@ mage interop:go    # Go-Client + Server
 ### Siehe auch
 - [moqt/](moqt/) — Kernpaket (Frames, Sessions, Track-Muxing)
 - [msf/](msf/) — MSF-Katalog, Delta, Timeline und Katalog-Track-Hilfspaket
-- [quic/](quic/) — QUIC-Hilfen und Beispiel `examples/native_quic`
-- [webtransport/](webtransport/), [webtransport/webtransportgo/](webtransport/webtransportgo/), [moq-web/](moq-web/) — WebTransport und Client-Code
+- [transport/](transport/) — Transportschicht-Schnittstellen (StreamConn, Stream, SendStream, ReceiveStream)
+- [moqt/internal/](moqt/internal/) — interne QUIC- (`quicgo`) und WebTransport- (`webtransportgo`) Adapter
+- [moq-web/](moq-web/) — TypeScript / WebTransport Client-Implementierung
 - [examples/](examples/) — Beispiel-Apps (broadcast, echo, native_quic, relay)
 
 ## Komponenten
@@ -74,8 +75,8 @@ Das Verzeichnis [examples](examples) enthält Beispielanwendungen zur Nutzung vo
 - **Relay** (`examples/relay/`): Weiterleitung von Medienströmen
 
 ## Dokumentation
-- [GoDoc](https://pkg.go.dev/github.com/OkutaniDaichi0106/gomoqt)
-- [MOQ Lite-Spezifikation](https://www.ietf.org/archive/id/draft-lcurley-moq-lite-05.html)
+- [GoDoc](https://pkg.go.dev/github.com/qumo-dev/gomoqt)
+- [MOQ Lite-Spezifikation](https://www.ietf.org/archive/id/draft-lcurley-moq-lite-04.html)
 - [MSF-Paket README](msf/README.md)
 - [Implementierungsstatus](moqt/README.md) — Detaillierter Fortschritt der Umsetzung
 
@@ -84,7 +85,7 @@ Diese Implementierung richtet sich nach der MOQ Lite-Spezifikation. Den aktuelle
 
 ## Entwicklung
 ### Voraussetzungen
-- Go 1.25.0 oder neuer
+- Go 1.27.0 oder neuer
 - [Mage](https://magefile.org/) Build-Tool (Installation: `go install github.com/magefile/mage@latest`)
 
 ### Entwicklungsbefehle
@@ -138,4 +139,4 @@ Dieses Projekt steht unter der MIT-Lizenz; siehe [LICENSE](LICENSE) für Details
 ## Danksagungen
 - [quic-go](https://github.com/quic-go/quic-go) — QUIC-Implementierung in Go
 - [webtransport-go](https://github.com/okdaichi/webtransport-go) — WebTransport-Implementierung in Go
-- [MOQ Lite-Spezifikation](https://www.ietf.org/archive/id/draft-lcurley-moq-lite-05.html) — Spezifikation, der diese Implementierung folgt
+- [MOQ Lite-Spezifikation](https://www.ietf.org/archive/id/draft-lcurley-moq-lite-04.html) — Spezifikation, der diese Implementierung folgt

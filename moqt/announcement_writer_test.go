@@ -96,7 +96,7 @@ func TestAnnouncementWriter_Init(t *testing.T) {
 			expectError:     true,
 			expectedActives: 0,
 			setupMocks: func(mockStream *FakeQUICStream) {
-				mockStream.WriteFunc = func(p []byte) (int, error) { return 0, errors.New("write error") }
+				mockStream.Writes = []streamResult{{Err: errors.New("write error")}}
 			},
 		},
 		"invalid path announcement": {
@@ -142,7 +142,7 @@ func TestAnnouncementWriter_Init(t *testing.T) {
 
 func TestAnnouncementWriter_SendAnnouncement_AfterInitError(t *testing.T) {
 	aw := newTestAnnouncementWriter(t, func(m *FakeQUICStream) {
-		m.WriteFunc = func(p []byte) (int, error) { return 0, errors.New("write error") }
+		m.Writes = []streamResult{{Err: errors.New("write error")}}
 	})
 	ann, _ := NewAnnouncement(context.Background(), BroadcastPath("/test/stream1"))
 
@@ -189,7 +189,7 @@ func TestAnnouncementWriter_Init_StreamError(t *testing.T) {
 	}
 
 	aw := newTestAnnouncementWriter(t, func(m *FakeQUICStream) {
-		m.WriteFunc = func(p []byte) (int, error) { return 0, streamError }
+		m.Writes = []streamResult{{Err: streamError}}
 	})
 
 	ann, _ := NewAnnouncement(context.Background(), BroadcastPath("/test/stream1"))
@@ -349,11 +349,7 @@ func TestAnnouncementWriter_SendAnnouncement(t *testing.T) {
 }
 
 func TestAnnouncementWriter_SendAnnouncement_EncodesHops(t *testing.T) {
-	var buf bytes.Buffer
-
-	aw := newTestAnnouncementWriter(t, func(m *FakeQUICStream) {
-		m.WriteFunc = buf.Write
-	})
+	aw := newTestAnnouncementWriter(t)
 	ann, _ := NewAnnouncement(context.Background(), BroadcastPath("/test/stream1"))
 
 	err := aw.init(map[*Announcement]struct{}{})
@@ -362,13 +358,16 @@ func TestAnnouncementWriter_SendAnnouncement_EncodesHops(t *testing.T) {
 	err = aw.SendAnnouncement(ann)
 	require.NoError(t, err)
 
+	written := aw.stream.(*FakeQUICStream).Written()
+	r := bytes.NewReader(written)
+
 	// init writes ANNOUNCE_OK first, carrying this node's Hop ID.
 	var okMsg message.AnnounceOkMessage
-	require.NoError(t, okMsg.Decode(&buf))
+	require.NoError(t, okMsg.Decode(r))
 	assert.Equal(t, uint64(0), okMsg.ActiveCount)
 
 	var decoded message.AnnounceBroadcastMessage
-	require.NoError(t, decoded.Decode(&buf))
+	require.NoError(t, decoded.Decode(r))
 	assert.Equal(t, message.ACTIVE, decoded.AnnounceStatus)
 	assert.Equal(t, "stream1", decoded.BroadcastPathSuffix)
 	assert.Empty(t, decoded.HopIDs)
@@ -396,7 +395,7 @@ func TestAnnouncementWriter_SendAnnouncement_WriteError(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			aw := newTestAnnouncementWriter(t, func(m *FakeQUICStream) {
-				m.WriteFunc = func(p []byte) (int, error) { return 0, tt.writeError }
+				m.Writes = []streamResult{{Err: tt.writeError}}
 			})
 			ann, _ := NewAnnouncement(context.Background(), BroadcastPath("/test/stream1"))
 
@@ -458,7 +457,7 @@ func TestAnnouncementWriter_Close(t *testing.T) {
 	t.Run("handles stream close error", func(t *testing.T) {
 		expectedErr := fmt.Errorf("stream close error")
 		aw := newTestAnnouncementWriter(t, func(m *FakeQUICStream) {
-			m.CloseFunc = func() error { return expectedErr }
+			m.CloseErr = expectedErr
 		})
 
 		err := aw.Close()
@@ -486,47 +485,23 @@ func TestAnnouncementWriter_CloseWithError(t *testing.T) {
 
 		for name, tt := range tests {
 			t.Run(name, func(t *testing.T) {
-				var cancelReadCalled, cancelWriteCalled bool
-				var readErrCode, writeErrCode transport.StreamErrorCode
-
-				aw := newTestAnnouncementWriter(t, func(fqs *FakeQUICStream) {
-					fqs.CancelReadFunc = func(code transport.StreamErrorCode) {
-						cancelReadCalled = true
-						readErrCode = code
-					}
-					fqs.CancelWriteFunc = func(code transport.StreamErrorCode) {
-						cancelWriteCalled = true
-						writeErrCode = code
-					}
-				})
+				aw := newTestAnnouncementWriter(t)
 
 				err := aw.CloseWithError(tt.errorCode)
 
 				assert.NoError(t, err)
 				assert.Nil(t, aw.actives)
 				assert.NotNil(t, aw.initDone)
-				assert.True(t, cancelReadCalled, "CancelRead should be called")
-				assert.True(t, cancelWriteCalled, "CancelWrite should be called")
-				assert.Equal(t, transport.StreamErrorCode(tt.errorCode), readErrCode)
-				assert.Equal(t, transport.StreamErrorCode(tt.errorCode), writeErrCode)
+
+				mockStream := aw.stream.(*FakeQUICStream)
+				assert.Equal(t, []transport.StreamErrorCode{transport.StreamErrorCode(tt.errorCode)}, mockStream.CancelReadCodes(), "CancelRead should be called")
+				assert.Equal(t, []transport.StreamErrorCode{transport.StreamErrorCode(tt.errorCode)}, mockStream.CancelWriteCodes(), "CancelWrite should be called")
 			})
 		}
 	})
 
 	t.Run("closes with error and active announcements", func(t *testing.T) {
-		var cancelReadCalled, cancelWriteCalled bool
-		var readErrCode, writeErrCode transport.StreamErrorCode
-
-		aw := newTestAnnouncementWriter(t, func(fqs *FakeQUICStream) {
-			fqs.CancelReadFunc = func(code transport.StreamErrorCode) {
-				cancelReadCalled = true
-				readErrCode = code
-			}
-			fqs.CancelWriteFunc = func(code transport.StreamErrorCode) {
-				cancelWriteCalled = true
-				writeErrCode = code
-			}
-		})
+		aw := newTestAnnouncementWriter(t)
 
 		// Initialize the AnnouncementWriter first
 		err := aw.init(map[*Announcement]struct{}{})
@@ -546,10 +521,10 @@ func TestAnnouncementWriter_CloseWithError(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.Nil(t, aw.actives)
-		assert.True(t, cancelReadCalled, "CancelRead should be called")
-		assert.True(t, cancelWriteCalled, "CancelWrite should be called")
-		assert.Equal(t, transport.StreamErrorCode(AnnounceErrorCodeInternal), readErrCode)
-		assert.Equal(t, transport.StreamErrorCode(AnnounceErrorCodeInternal), writeErrCode)
+
+		mockStream := aw.stream.(*FakeQUICStream)
+		assert.Equal(t, []transport.StreamErrorCode{transport.StreamErrorCode(AnnounceErrorCodeInternal)}, mockStream.CancelReadCodes(), "CancelRead should be called")
+		assert.Equal(t, []transport.StreamErrorCode{transport.StreamErrorCode(AnnounceErrorCodeInternal)}, mockStream.CancelWriteCodes(), "CancelWrite should be called")
 	})
 }
 
@@ -993,11 +968,45 @@ func TestAnnouncementWriter_MultipleClose(t *testing.T) {
 }
 
 func TestAnnouncementWriter_Context(t *testing.T) {
-	aw := newTestAnnouncementWriter(t)
+	tests := map[string]struct {
+		setup func() *AnnouncementWriter
+		check func(*testing.T, context.Context)
+	}{
+		"nil receiver": {
+			setup: func() *AnnouncementWriter {
+				return nil
+			},
+			check: func(t *testing.T, ctx context.Context) {
+				assert.NotNil(t, ctx)
+				assert.ErrorIs(t, ctx.Err(), context.Canceled)
+			},
+		},
+		"nil context": {
+			setup: func() *AnnouncementWriter {
+				return &AnnouncementWriter{}
+			},
+			check: func(t *testing.T, ctx context.Context) {
+				assert.NotNil(t, ctx)
+				assert.ErrorIs(t, ctx.Err(), context.Canceled)
+			},
+		},
+		"valid context": {
+			setup: func() *AnnouncementWriter {
+				return &AnnouncementWriter{ctx: context.Background()}
+			},
+			check: func(t *testing.T, ctx context.Context) {
+				assert.NotNil(t, ctx)
+				assert.NoError(t, ctx.Err())
+			},
+		},
+	}
 
-	assert.NotNil(t, aw.Context())
-	assert.NoError(t, aw.Context().Err())
-
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			aw := tt.setup()
+			tt.check(t, aw.Context())
+		})
+	}
 }
 
 func TestAnnouncementWriter_StressTest_HeavyConcurrentAccess(t *testing.T) {

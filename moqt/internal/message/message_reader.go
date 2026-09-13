@@ -3,7 +3,6 @@ package message
 import (
 	"errors"
 	"io"
-	"math"
 )
 
 func ReadVarint(b []byte) (uint64, int, error) {
@@ -78,8 +77,8 @@ func ReadBytes(b []byte) ([]byte, int, error) {
 		return nil, 0, err
 	}
 	b = b[n:]
-	if num > math.MaxInt {
-		panic("byte slice too large")
+	if num > MaxMessageSize {
+		return nil, 0, ErrMessageTooLarge
 	}
 
 	if uint64(len(b)) < num {
@@ -103,16 +102,13 @@ func ReadStringArray(b []byte) ([]string, int, error) {
 		return nil, 0, err
 	}
 
-	if count > math.MaxInt {
-		panic("string array too large")
+	if count > MaxMessageSize {
+		return nil, 0, ErrMessageTooLarge
 	}
 
 	b = b[total:]
 
-	allocCap := count
-	if count > uint64(len(b)) {
-		allocCap = uint64(len(b))
-	}
+	allocCap := min(count, uint64(len(b)))
 	arr := make([]string, 0, allocCap)
 	for range count {
 		str, n, err := ReadString(b)

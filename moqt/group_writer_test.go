@@ -60,9 +60,11 @@ func TestGroupWriter_GroupSequence(t *testing.T) {
 
 func TestGroupWriter_WriteFrame(t *testing.T) {
 	tests := map[string]struct {
-		setupFrame  func() *Frame
-		setupMock   func() *FakeQUICSendStream
-		expectError bool
+		setupFrame       func() *Frame
+		setupMock        func() *FakeQUICSendStream
+		expectError      bool
+		expectFrameCount uint64
+		verifyData       func(t *testing.T, stream *FakeQUICSendStream)
 	}{
 		"write valid frame": {
 			setupFrame: func() *Frame {
@@ -71,11 +73,15 @@ func TestGroupWriter_WriteFrame(t *testing.T) {
 				return frame
 			},
 			setupMock: func() *FakeQUICSendStream {
-				return &FakeQUICSendStream{
-					WriteFunc: func(p []byte) (int, error) { return 0, nil },
-				}
+				return &FakeQUICSendStream{}
 			},
-			expectError: false,
+			expectError:      false,
+			expectFrameCount: 1,
+			verifyData: func(t *testing.T, stream *FakeQUICSendStream) {
+				// The payload length is 9 ("test data"), which is encoded as a varint (1 byte for 9).
+				// Thus, written data should be varint(9) + "test data".
+				assert.Equal(t, append([]byte{9}, []byte("test data")...), stream.Written())
+			},
 		},
 		"write nil frame": {
 			setupFrame: func() *Frame {
@@ -84,7 +90,8 @@ func TestGroupWriter_WriteFrame(t *testing.T) {
 			setupMock: func() *FakeQUICSendStream {
 				return &FakeQUICSendStream{}
 			},
-			expectError: false,
+			expectError:      false,
+			expectFrameCount: 0,
 		},
 		"write frame with error": {
 			setupFrame: func() *Frame {
@@ -94,10 +101,11 @@ func TestGroupWriter_WriteFrame(t *testing.T) {
 			},
 			setupMock: func() *FakeQUICSendStream {
 				return &FakeQUICSendStream{
-					WriteFunc: func(p []byte) (int, error) { return 0, errors.New("write error") },
+					Writes: []streamResult{{Err: errors.New("write error")}},
 				}
 			},
-			expectError: true,
+			expectError:      true,
+			expectFrameCount: 0,
 		},
 	}
 
@@ -112,6 +120,12 @@ func TestGroupWriter_WriteFrame(t *testing.T) {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
+			}
+
+			assert.Equal(t, tt.expectFrameCount, sgs.frameCount, "frame count should match")
+
+			if tt.verifyData != nil {
+				tt.verifyData(t, mockStream)
 			}
 		})
 	}
@@ -144,7 +158,6 @@ func TestGroupWriter_ContextCancellation(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		mockStream := &FakeQUICSendStream{
 			ParentCtx: ctx,
-			WriteFunc: func(p []byte) (int, error) { return 4, nil },
 		}
 
 		sgs := newGroupWriter(mockStream, GroupSequence(1), newGroupWriterManager())
@@ -170,7 +183,7 @@ func TestGroupWriter_CloseWithStreamError(t *testing.T) {
 		}
 
 		mockStream := &FakeQUICSendStream{
-			CloseFunc: func() error { return streamErr },
+			CloseErr: streamErr,
 		}
 
 		sgs := newGroupWriter(mockStream, GroupSequence(1), newGroupWriterManager())
@@ -184,7 +197,7 @@ func TestGroupWriter_CloseWithStreamError(t *testing.T) {
 		otherErr := errors.New("some other error")
 
 		mockStream := &FakeQUICSendStream{
-			CloseFunc: func() error { return otherErr },
+			CloseErr: otherErr,
 		}
 
 		sgs := newGroupWriter(mockStream, GroupSequence(1), newGroupWriterManager())
@@ -224,12 +237,43 @@ func TestGroupWriter_Context(t *testing.T) {
 }
 
 func TestGroupWriter_CancelWrite(t *testing.T) {
-	mockStream := &FakeQUICSendStream{}
+	tests := map[string]struct {
+		hasManager bool
+		errorCode  GroupErrorCode
+	}{
+		"with group manager": {
+			hasManager: true,
+			errorCode:  GroupErrorCode(123),
+		},
+		"without group manager": {
+			hasManager: false,
+			errorCode:  GroupErrorCode(456),
+		},
+	}
 
-	groupManager := newGroupWriterManager()
-	sgs := newGroupWriter(mockStream, GroupSequence(1), groupManager)
-	groupManager.addGroup(sgs)
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			mockStream := &FakeQUICSendStream{}
 
-	sgs.CancelWrite(1)
-	assert.Equal(t, 0, groupManager.countGroups())
+			var groupManager *groupWriterManager
+			if tt.hasManager {
+				groupManager = newGroupWriterManager()
+			}
+
+			sgs := newGroupWriter(mockStream, GroupSequence(1), groupManager)
+
+			if tt.hasManager {
+				// newGroupWriter adds to manager if not nil, but let's double check it's there
+				assert.Equal(t, 1, groupManager.countGroups())
+			}
+
+			sgs.CancelWrite(tt.errorCode)
+
+			assert.Equal(t, []transport.StreamErrorCode{transport.StreamErrorCode(tt.errorCode)}, mockStream.CancelWriteCodes())
+
+			if tt.hasManager {
+				assert.Equal(t, 0, groupManager.countGroups())
+			}
+		})
+	}
 }

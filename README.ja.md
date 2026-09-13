@@ -6,11 +6,11 @@
 
 Media over QUIC (MOQ) の Go 実装で、MOQ Lite 仕様に基づき QUIC 上で効率的なメディア配信を行います。
 
-[![Go](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/go.yml/badge.svg)](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/go.yml)
-[![Lint](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/lint.yml/badge.svg)](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/lint.yml)
-[![moq-web CI](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/moq-web-ci.yml/badge.svg)](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/moq-web-ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/OkutaniDaichi0106/gomoqt.svg)](https://pkg.go.dev/github.com/OkutaniDaichi0106/gomoqt)
-[![codecov](https://codecov.io/gh/OkutaniDaichi0106/gomoqt/branch/main/graph/badge.svg?token=4LZCD3FEU3)](https://codecov.io/gh/OkutaniDaichi0106/gomoqt)
+[![Go](https://github.com/qumo-dev/gomoqt/actions/workflows/go.yml/badge.svg)](https://github.com/qumo-dev/gomoqt/actions/workflows/go.yml)
+[![Lint](https://github.com/qumo-dev/gomoqt/actions/workflows/lint.yml/badge.svg)](https://github.com/qumo-dev/gomoqt/actions/workflows/lint.yml)
+[![moq-web CI](https://github.com/qumo-dev/gomoqt/actions/workflows/moq-web-ci.yml/badge.svg)](https://github.com/qumo-dev/gomoqt/actions/workflows/moq-web-ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/qumo-dev/gomoqt.svg)](https://pkg.go.dev/github.com/qumo-dev/gomoqt)
+[![codecov](https://codecov.io/gh/qumo-dev/gomoqt/branch/main/graph/badge.svg?token=4LZCD3FEU3)](https://codecov.io/gh/qumo-dev/gomoqt)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/qumo-dev/gomoqt)
 
 ## 目次
@@ -27,11 +27,11 @@ Media over QUIC (MOQ) の Go 実装で、MOQ Lite 仕様に基づき QUIC 上で
 - [付録](#付録)
 
 ## 概要
-本実装は [MOQ Lite 仕様](https://www.ietf.org/archive/id/draft-lcurley-moq-lite-05.html) に準拠し、QUIC を用いたリアルタイム・メディアストリーミングアプリケーションの通信基盤を構築することができます。
+本実装は [MOQ Lite 仕様](https://www.ietf.org/archive/id/draft-lcurley-moq-lite-04.html) に準拠し、QUIC を用いたリアルタイム・メディアストリーミングアプリケーションの通信基盤を構築することができます。
 
 ## クイックスタート
 ```bash
-# Mage をインストール (Go 1.25+)
+# Mage をインストール (Go 1.27+)
 go install github.com/magefile/mage@latest
 
 # Docker コンテナ内で interop テストを実行（TypeScript クライアント + サーバ）
@@ -55,8 +55,9 @@ mage interop:go
 ### あわせて参照
 - [moqt/](moqt/) — コアパッケージ (フレーム、セッション、トラック多重化)
 - [msf/](msf/) — MSF カタログ、デルタ、タイムライン、カタログ-トラック ヘルパーパッケージ
-- [quic/](quic/) — QUIC ラッパーと `examples/native_quic`
-- [webtransport/](webtransport/), [webtransport/webtransportgo/](webtransport/webtransportgo/), [moq-web/](moq-web/) — WebTransport とクライアントコード
+- [transport/](transport/) — トランスポート層インターフェース (StreamConn, Stream, SendStream, ReceiveStream)
+- [moqt/internal/](moqt/internal/) — 内部 QUIC (`quicgo`) および WebTransport (`webtransportgo`) アダプター
+- [moq-web/](moq-web/) — TypeScript / WebTransport クライアント実装
 - [examples/](examples/) — サンプル (broadcast, echo, native_quic, relay)
 
 ## コンポーネント
@@ -75,8 +76,8 @@ mage interop:go
 - **リレー** (`examples/relay/`): メディアストリームの中継実装の例
 
 ## ドキュメント
-- [GoDoc](https://pkg.go.dev/github.com/OkutaniDaichi0106/gomoqt)
-- [MOQ Lite 仕様](https://www.ietf.org/archive/id/draft-lcurley-moq-lite-05.html)
+- [GoDoc](https://pkg.go.dev/github.com/qumo-dev/gomoqt)
+- [MOQ Lite 仕様](https://www.ietf.org/archive/id/draft-lcurley-moq-lite-04.html)
 - [MSF パッケージ README](msf/README.md)
 - [実装状況](moqt/README.md) — 実装進捗の詳細
 
@@ -85,7 +86,7 @@ mage interop:go
 
 ## 開発する
 ### 前提条件
-- Go 1.25.0 以上
+- Go 1.27.0 以上
 - [Mage](https://magefile.org/) ビルドツール (`go install github.com/magefile/mage@latest`)
 
 ### 開発用コマンド
@@ -139,4 +140,4 @@ mage help
 ## 謝辞
 - [quic-go](https://github.com/quic-go/quic-go) — Go による QUIC 実装
 - [webtransport-go](https://github.com/okdaichi/webtransport-go) — Go による WebTransport 実装
-- [MOQ Lite 仕様](https://www.ietf.org/archive/id/draft-lcurley-moq-lite-05.html) — 本実装が準拠する仕様
+- [MOQ Lite 仕様](https://www.ietf.org/archive/id/draft-lcurley-moq-lite-04.html) — 本実装が準拠する仕様

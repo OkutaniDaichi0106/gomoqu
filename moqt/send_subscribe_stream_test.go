@@ -86,7 +86,6 @@ func TestSendSubscribeStream_UpdateSubscribe(t *testing.T) {
 		Priority: TrackPriority(1),
 	}
 	mockStream := &FakeQUICStream{}
-	mockStream.WriteFunc = func(p []byte) (int, error) { return 0, nil }
 	sss := newSendSubscribeStream(SubscribeID(1), mockStream, config)
 
 	// Test valid update
@@ -116,9 +115,7 @@ func TestSendSubscribeStream_UpdateSubscribe_NilConfigNoOp(t *testing.T) {
 
 func TestSendSubscribeStream_UpdateSubscribe_EncodesWireFormat(t *testing.T) {
 	config := &SubscribeConfig{Priority: TrackPriority(1)}
-	var buf bytes.Buffer
 	mockStream := &FakeQUICStream{}
-	mockStream.WriteFunc = buf.Write
 	sss := newSendSubscribeStream(SubscribeID(1), mockStream, config)
 
 	newConfig := &SubscribeConfig{
@@ -133,7 +130,7 @@ func TestSendSubscribeStream_UpdateSubscribe_EncodesWireFormat(t *testing.T) {
 	require.NoError(t, err)
 
 	var decoded message.SubscribeUpdateMessage
-	require.NoError(t, decoded.Decode(&buf))
+	require.NoError(t, decoded.Decode(bytes.NewReader(mockStream.Written())))
 	assert.Equal(t, uint8(7), decoded.SubscriberPriority)
 	assert.Equal(t, uint8(1), decoded.SubscriberOrdered)
 	assert.Equal(t, uint64(42), decoded.SubscriberMaxLatency)
@@ -196,7 +193,6 @@ func TestSendSubscribeStream_ConcurrentUpdate(t *testing.T) {
 		Priority: TrackPriority(1),
 	}
 	mockStream := &FakeQUICStream{}
-	mockStream.WriteFunc = func(p []byte) (int, error) { return 0, nil }
 	sss := newSendSubscribeStream(SubscribeID(1), mockStream, config)
 
 	// Test concurrent updates
@@ -238,8 +234,7 @@ func TestSendSubscribeStream_UpdateSubscribeWriteError(t *testing.T) {
 	config := &SubscribeConfig{
 		Priority: TrackPriority(1),
 	}
-	mockStream := &FakeQUICStream{}
-	mockStream.WriteFunc = func(p []byte) (int, error) { return 0, assert.AnError }
+	mockStream := &FakeQUICStream{Writes: []streamResult{{Err: assert.AnError}}}
 	sss := newSendSubscribeStream(SubscribeID(1), mockStream, config)
 
 	newConfig := &SubscribeConfig{
@@ -254,8 +249,7 @@ func TestSendSubscribeStream_UpdateSubscribeWriteError(t *testing.T) {
 func TestSendSubscribeStream_UpdateSubscribeClosedStream(t *testing.T) {
 	config := &SubscribeConfig{}
 
-	mockStream := &FakeQUICStream{}
-	mockStream.WriteFunc = func(p []byte) (int, error) { return 0, io.EOF }
+	mockStream := &FakeQUICStream{Writes: []streamResult{{Err: io.EOF}}}
 	sss := newSendSubscribeStream(SubscribeID(1), mockStream, config)
 
 	// Close the stream first
@@ -319,9 +313,6 @@ func TestSendSubscribeStream_UpdateSubscribeValidRangeTransitions(t *testing.T) 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			mockStream := &FakeQUICStream{}
-			if !tt.expectError {
-				mockStream.WriteFunc = func(p []byte) (int, error) { return 0, nil }
-			}
 			sss := newSendSubscribeStream(SubscribeID(1), mockStream, tt.initialConfig)
 
 			err := sss.updateSubscribe(tt.newConfig)

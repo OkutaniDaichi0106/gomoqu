@@ -18,6 +18,27 @@ import (
 	"github.com/qumo-dev/gomoqt/transport"
 )
 
+// ServerCounters holds per-stage accept counters for diagnosing connection
+// pipeline bottlenecks (e.g. P>=3 scaling investigations). Each field is an
+// atomic counter incremented at the corresponding stage of the accept path.
+// A nil *ServerCounters is safe to use (increments are no-ops).
+type ServerCounters struct {
+	// QUICAccepts counts successful ln.Accept calls (QUIC handshake complete).
+	QUICAccepts atomic.Int64
+	// NativeSessions counts MoQ sessions created via handleNativeQUIC.
+	NativeSessions atomic.Int64
+	// BiStreamAccepts counts bidirectional streams accepted by handleBiStreams.
+	BiStreamAccepts atomic.Int64
+	// SubscribesReceived counts SUBSCRIBE messages decoded.
+	SubscribesReceived atomic.Int64
+	// SubscribesServed counts mux.serveTrack invocations.
+	SubscribesServed atomic.Int64
+	// AcceptErrors counts ln.Accept errors.
+	AcceptErrors atomic.Int64
+	// SubscribeErrors counts SUBSCRIBE decode failures.
+	SubscribeErrors atomic.Int64
+}
+
 // ListenAndServe starts a new Server bound to the specified address and TLS
 // configuration. It is a convenience helper that constructs a Server with the
 // provided settings and calls its ListenAndServe method.
@@ -49,6 +70,9 @@ func NewWebTransportServer(handler http.Handler) WebTransportServer {
 // The server maintains active sessions and listeners and provides graceful
 // shutdown capabilities.
 type Server struct {
+	// Counters tracks per-stage accept pipeline counters. Nil is safe.
+	Counters *ServerCounters
+
 	// Address to listen on, in the form "host:port".
 	Addr string
 
@@ -105,10 +129,17 @@ type Server struct {
 	initOnce sync.Once
 
 	inShutdown atomic.Bool
+
+	shutdownCtx    context.Context
+	shutdownCancel context.CancelFunc
 }
 
 func (s *Server) init() {
 	s.initOnce.Do(func() {
+		if s.Counters == nil {
+			s.Counters = new(ServerCounters)
+		}
+		s.shutdownCtx, s.shutdownCancel = context.WithCancel(context.Background())
 		s.listeners = make(map[QUICListener]struct{})
 		s.connManager = newConnManager()
 		if s.WebTransportServer == nil {
@@ -165,8 +196,9 @@ func (s *Server) ServeQUICListener(ln QUICListener) error {
 
 	// Watch for shutdown and cancel context when shutting down
 	go func() {
-		for !s.shuttingDown() {
-			time.Sleep(100 * time.Millisecond)
+		select {
+		case <-s.shutdownCtx.Done():
+		case <-ctx.Done(): // cancel if accept loop exits
 		}
 		cancel()
 	}()
@@ -183,7 +215,14 @@ func (s *Server) ServeQUICListener(ln QUICListener) error {
 			if errors.Is(err, context.Canceled) {
 				return ErrServerClosed
 			}
+			if s.Counters != nil {
+				s.Counters.AcceptErrors.Add(1)
+			}
 			return fmt.Errorf("failed to accept QUIC connection: %w", err)
+		}
+
+		if s.Counters != nil {
+			s.Counters.QUICAccepts.Add(1)
 		}
 
 		// Handle connection in a goroutine
@@ -330,7 +369,7 @@ func (u *WebTransportHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	// WebTransport: the request path is already resolved by the HTTP
 	// handshake (r.URL.Path), so Session needs no path/role state. Handlers
 	// read the path from r.URL.Path.
-	sess := newSession(conn, u.TrackMux, manager, u.Config, u.FetchHandler, nil, u.Logger, sessionSetup{})
+	sess := newSession(conn, u.TrackMux, manager, u.Config, u.FetchHandler, nil, u.Logger, sessionSetup{}, nil)
 	// Ensure the session is cleaned up (conn removed from the manager) when
 	// the Handler returns, even if it did not call CloseWithError itself (e.g.
 	// the peer closed the connection). Idempotent.
@@ -380,7 +419,10 @@ func (s *Server) handleNativeQUIC(conn StreamConn) error {
 	// state without re-reading the consumed stream.
 	conn = withPathContext(conn, path)
 	sess := newSession(conn, s.TrackMux, s.connManager, s.Config, s.FetchHandler, nil, s.Logger,
-		sessionSetup{peerSetup: &sm})
+		sessionSetup{peerSetup: &sm}, s.Counters)
+	if s.Counters != nil {
+		s.Counters.NativeSessions.Add(1)
+	}
 	// Clean up the session when the Handler returns (idempotent if the
 	// Handler already closed it), so the conn is removed from the manager.
 	defer sess.CloseWithError(NoError, "session ended")
@@ -509,11 +551,12 @@ func (s *Server) Close() error {
 		return ErrServerClosed
 	}
 
-	// Set the shutdown flag
-	s.inShutdown.Store(true)
-
 	// Ensure that the server is initialized
 	s.init()
+
+	// Set the shutdown flag
+	s.inShutdown.Store(true)
+	s.shutdownCancel()
 
 	// Close all listeners first to stop accepting new connections
 	s.listenerMu.Lock()
@@ -572,8 +615,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		return ErrServerClosed
 	}
 
+	s.init()
+
 	// Set the shutdown flag
 	s.inShutdown.Store(true)
+	s.shutdownCancel()
 
 	// Close all listeners first to stop accepting new connections
 	s.listenerMu.Lock()

@@ -113,7 +113,7 @@ func (d *Dialer) DialWebTransport(ctx context.Context, host, path string, mux *T
 
 	// WebTransport: the request path is bound by the HTTP handshake
 	// (path argument above), so Session carries no path state.
-	return newSession(conn, mux, nil, d.Config, d.FetchHandler, d.OnGoaway, d.Logger, sessionSetup{}), nil
+	return newSession(conn, mux, nil, d.Config, d.FetchHandler, d.OnGoaway, d.Logger, sessionSetup{}, nil), nil
 }
 
 // DialQUIC establishes a new session over native QUIC by dialing the provided
@@ -154,5 +154,5 @@ func (d *Dialer) DialQUIC(ctx context.Context, addr, path string, mux *TrackMux)
 	// Native QUIC has no handshake-time request URI, so the client conveys the
 	// request path via the SETUP Path parameter. setupPath drives that.
 	return newSession(conn, mux, nil, d.Config, d.FetchHandler, d.OnGoaway, d.Logger,
-		sessionSetup{setupPath: path}), nil
+		sessionSetup{setupPath: path}, nil), nil
 }

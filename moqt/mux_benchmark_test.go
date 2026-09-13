@@ -124,7 +124,7 @@ func BenchmarkTrackMux_ServeTrack(b *testing.B) {
 // fixed buffer of 8 and, when full, the production code drops the subscription
 // and closes the writer. To measure the steady-state fan-out (channel send
 // succeeding) rather than the drop/close path, each iteration waits for the
-// consumer to acknowledge delivery (via a WriteFunc signal) before publishing
+// consumer to acknowledge delivery (via a WriteNotify signal) before publishing
 // the next announcement. This yields a stable per-operation latency for the
 // full relay forwarding path.
 func BenchmarkTrackMux_ServeAnnouncements(b *testing.B) {
@@ -148,23 +148,15 @@ func BenchmarkTrackMux_ServeAnnouncements(b *testing.B) {
 			// init completion before timing and to acknowledge each fan-out.
 			delivered := make(chan struct{}, 1)
 			mockStream := &FakeQUICStream{
-				ParentCtx: awCtx,
-				WriteFunc: func(p []byte) (int, error) {
-					select {
-					case delivered <- struct{}{}:
-					default:
-					}
-					return len(p), nil
-				},
+				ParentCtx:   awCtx,
+				WriteNotify: delivered,
 			}
 			aw := newAnnouncementWriter(mockStream, "/room/", 0, 0, nil)
 
 			var awWG sync.WaitGroup
-			awWG.Add(1)
-			go func() {
-				defer awWG.Done()
+			awWG.Go(func() {
 				mux.serveAnnouncements(aw)
-			}()
+			})
 
 			// Block until init has fully completed. The fan-out path in
 			// Announce does a non-blocking channel send and, on overflow, closes
@@ -604,23 +596,15 @@ func BenchmarkTrackMux_AnnouncementTree(b *testing.B) {
 			awCtx, cancelAW := context.WithCancel(ctx)
 			delivered := make(chan struct{}, 1)
 			mockStream := &FakeQUICStream{
-				ParentCtx: awCtx,
-				WriteFunc: func(p []byte) (int, error) {
-					select {
-					case delivered <- struct{}{}:
-					default:
-					}
-					return len(p), nil
-				},
+				ParentCtx:   awCtx,
+				WriteNotify: delivered,
 			}
 			aw := newAnnouncementWriter(mockStream, "/level1/", 0, 0, nil)
 
 			var awWG sync.WaitGroup
-			awWG.Add(1)
-			go func() {
-				defer awWG.Done()
+			awWG.Go(func() {
 				mux.serveAnnouncements(aw)
-			}()
+			})
 
 			// Block until init completes; see ServeAnnouncements for why this
 			// prevents a Publish from racing init's registerEndHandler.

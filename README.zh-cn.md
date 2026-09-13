@@ -6,11 +6,11 @@
 
 在 Go 语言中实现 Media over QUIC (MOQ),遵循 MOQ Lite 规范,通过 QUIC 协议高效地传输和分发媒体内容。
 
-[![Go](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/go.yml/badge.svg)](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/go.yml)
-[![Lint](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/lint.yml/badge.svg)](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/lint.yml)
-[![moq-web CI](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/moq-web-ci.yml/badge.svg)](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/moq-web-ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/OkutaniDaichi0106/gomoqt.svg)](https://pkg.go.dev/github.com/OkutaniDaichi0106/gomoqt)
-[![codecov](https://codecov.io/gh/OkutaniDaichi0106/gomoqt/branch/main/graph/badge.svg?token=4LZCD3FEU3)](https://codecov.io/gh/OkutaniDaichi0106/gomoqt)
+[![Go](https://github.com/qumo-dev/gomoqt/actions/workflows/go.yml/badge.svg)](https://github.com/qumo-dev/gomoqt/actions/workflows/go.yml)
+[![Lint](https://github.com/qumo-dev/gomoqt/actions/workflows/lint.yml/badge.svg)](https://github.com/qumo-dev/gomoqt/actions/workflows/lint.yml)
+[![moq-web CI](https://github.com/qumo-dev/gomoqt/actions/workflows/moq-web-ci.yml/badge.svg)](https://github.com/qumo-dev/gomoqt/actions/workflows/moq-web-ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/qumo-dev/gomoqt.svg)](https://pkg.go.dev/github.com/qumo-dev/gomoqt)
+[![codecov](https://codecov.io/gh/qumo-dev/gomoqt/branch/main/graph/badge.svg?token=4LZCD3FEU3)](https://codecov.io/gh/qumo-dev/gomoqt)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/qumo-dev/gomoqt)
 
 ## 目录
@@ -27,11 +27,11 @@
 - [致谢](#致谢)
 
 ## 概述
-本实现遵循 [MOQ Lite 规范](https://www.ietf.org/archive/id/draft-lcurley-moq-lite-05.html),可以利用 QUIC 构建实时媒体流应用的通信基础。
+本实现遵循 [MOQ Lite 规范](https://www.ietf.org/archive/id/draft-lcurley-moq-lite-04.html),可以利用 QUIC 构建实时媒体流应用的通信基础。
 
 ## 快速开始
 ```bash
-# 安装 Mage (需要 Go 1.25+)
+# 安装 Mage (需要 Go 1.27+)
 go install github.com/magefile/mage@latest
 
 # 在 Docker 容器中运行 interop 测试（TypeScript 客户端 + 服务器）
@@ -55,8 +55,9 @@ mage interop:go
 ### 另请参阅
 - [moqt/](moqt/) — 核心包(帧、会话、轨道复用)
 - [msf/](msf/) — MSF 目录、增量、时间线及目录-轨道辅助包
-- [quic/](quic/) — QUIC 包装器和 `examples/native_quic`
-- [webtransport/](webtransport/)、[webtransport/webtransportgo/](webtransport/webtransportgo/)、[moq-web/](moq-web/) — WebTransport 和客户端代码
+- [transport/](transport/) — 传输层接口 (StreamConn, Stream, SendStream, ReceiveStream)
+- [moqt/internal/](moqt/internal/) — 内部 QUIC (`quicgo`) 和 WebTransport (`webtransportgo`) 适配器
+- [moq-web/](moq-web/) — TypeScript / WebTransport 客户端实现
 - [examples/](examples/) — 示例应用(广播、回显、原生 QUIC、中继)
 
 ## 组件
@@ -75,8 +76,8 @@ mage interop:go
 - **中继**(`examples/relay/`):媒体流中继实现示例
 
 ## 文档
-- [GoDoc](https://pkg.go.dev/github.com/OkutaniDaichi0106/gomoqt)
-- [MOQ Lite 规范](https://www.ietf.org/archive/id/draft-lcurley-moq-lite-05.html)
+- [GoDoc](https://pkg.go.dev/github.com/qumo-dev/gomoqt)
+- [MOQ Lite 规范](https://www.ietf.org/archive/id/draft-lcurley-moq-lite-04.html)
 - [MSF 包 README](msf/README.md)
 - [实现状态](moqt/README.md) — 详细的实现进度
 
@@ -85,7 +86,7 @@ mage interop:go
 
 ## 开发
 ### 先决条件
-- Go 1.25.0 或更高版本
+- Go 1.27.0 或更高版本
 - [Mage](https://magefile.org/) 构建工具(使用 `go install github.com/magefile/mage@latest` 安装)
 
 ### 开发命令
@@ -139,4 +140,4 @@ mage help
 ## 致谢
 - [quic-go](https://github.com/quic-go/quic-go) — Go 的 QUIC 实现
 - [webtransport-go](https://github.com/okdaichi/webtransport-go) — Go 的 WebTransport 实现
-- [MOQ Lite 规范](https://www.ietf.org/archive/id/draft-lcurley-moq-lite-05.html) — 本实现遵循的规范
+- [MOQ Lite 规范](https://www.ietf.org/archive/id/draft-lcurley-moq-lite-04.html) — 本实现遵循的规范

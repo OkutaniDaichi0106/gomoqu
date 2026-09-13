@@ -56,10 +56,8 @@ func TestAnnouncementReader_ReceiveAnnouncement(t *testing.T) {
 				}.Encode(buf)
 				require.NoError(t, err)
 
-				mockStream := &FakeQUICStream{}
 				data := append([]byte(nil), buf.Bytes()...)
-				reader := bytes.NewReader(data)
-				mockStream.ReadFunc = reader.Read
+				mockStream := &FakeQUICStream{Reads: []streamResult{{Data: data}, {Err: io.EOF}}}
 				ras := newAnnouncementReader(mockStream, "/test/", []string{"valid_announcement"})
 				return ras
 			}(),
@@ -191,9 +189,7 @@ func TestAnnouncementReader_Close(t *testing.T) {
 }
 
 func TestAnnouncementReader_CloseWithError(t *testing.T) {
-	mockStream := &FakeQUICStream{
-		ReadFunc: func(p []byte) (int, error) { return 0, io.EOF },
-	}
+	mockStream := &FakeQUICStream{}
 
 	ras := newAnnouncementReader(mockStream, "/test/", []string{"valid_announcement"})
 
@@ -209,9 +205,7 @@ func TestAnnouncementReader_CloseWithError(t *testing.T) {
 }
 
 func TestAnnouncementReader_CloseWithError_MultipleClose(t *testing.T) {
-	mockStream := &FakeQUICStream{
-		ReadFunc: func(p []byte) (int, error) { return 0, io.EOF },
-	}
+	mockStream := &FakeQUICStream{}
 
 	ras := newAnnouncementReader(mockStream, "/test/", []string{"valid_announcement"})
 
@@ -278,9 +272,8 @@ func TestAnnouncementReader_ConcurrentAccess(t *testing.T) {
 	}
 
 	data := append([]byte(nil), buf.Bytes()...)
-	reader := bytes.NewReader(data)
 	mockStream := &FakeQUICStream{
-		ReadFunc: reader.Read,
+		Reads: []streamResult{{Data: data}, {Err: io.EOF}},
 	}
 
 	ras := newAnnouncementReader(mockStream, "/test/", []string{"valid_announcement"})
@@ -392,10 +385,9 @@ func TestAnnouncementReader_PrefixHandling(t *testing.T) {
 func TestAnnouncementReader_InvalidMessage(t *testing.T) {
 	// Create invalid message data
 	invalidData := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
-	buf := bytes.NewBuffer(invalidData)
 
 	mockStream := &FakeQUICStream{
-		ReadFunc: buf.Read,
+		Reads: []streamResult{{Data: invalidData}},
 	}
 
 	ras := newAnnouncementReader(mockStream, "/test/", []string{"valid_announcement"})
@@ -430,13 +422,7 @@ func TestAnnouncementReader_ActiveThenEnded(t *testing.T) {
 	}
 
 	mockStream := &FakeQUICStream{
-		ReadFunc: func(p []byte) (n int, err error) {
-			if buf.Len() > 0 {
-				return buf.Read(p)
-			}
-			// Block after all data is consumed
-			select {}
-		},
+		Reads: []streamResult{{Data: buf.Bytes()}, {Block: true}},
 	}
 
 	ras := newAnnouncementReader(mockStream, "/test/", []string{})
@@ -490,13 +476,7 @@ func TestAnnouncementReader_MultipleActiveStreams(t *testing.T) {
 	}
 
 	mockStream := &FakeQUICStream{
-		ReadFunc: func(p []byte) (n int, err error) {
-			if buf.Len() > 0 {
-				return buf.Read(p)
-			}
-			// Block after all data is consumed
-			select {}
-		},
+		Reads: []streamResult{{Data: buf.Bytes()}, {Block: true}},
 	}
 
 	ras := newAnnouncementReader(mockStream, "/test/", []string{})
@@ -561,13 +541,7 @@ func TestAnnouncementReader_DuplicateActiveError(t *testing.T) {
 	}
 
 	mockStream := &FakeQUICStream{
-		ReadFunc: func(p []byte) (n int, err error) {
-			if buf.Len() > 0 {
-				return buf.Read(p)
-			}
-			// Block after all data is consumed
-			select {}
-		},
+		Reads: []streamResult{{Data: buf.Bytes()}, {Block: true}},
 	}
 
 	ras := newAnnouncementReader(mockStream, "/test/", []string{})
@@ -605,13 +579,7 @@ func TestAnnouncementReader_EndNonExistentStreamError(t *testing.T) {
 	}
 
 	mockStream := &FakeQUICStream{
-		ReadFunc: func(p []byte) (n int, err error) {
-			if buf.Len() > 0 {
-				return buf.Read(p)
-			}
-			// Block after all data is consumed
-			select {}
-		},
+		Reads: []streamResult{{Data: buf.Bytes()}, {Block: true}},
 	}
 
 	ras := newAnnouncementReader(mockStream, "/test/", []string{})
@@ -646,13 +614,7 @@ func TestAnnouncementReader_NotifyChannel(t *testing.T) {
 	require.NoError(t, err)
 
 	mockStream := &FakeQUICStream{
-		ReadFunc: func(p []byte) (n int, err error) {
-			if buf.Len() > 0 {
-				return buf.Read(p)
-			}
-			// Block after data
-			select {}
-		},
+		Reads: []streamResult{{Data: buf.Bytes()}, {Block: true}},
 	}
 
 	// Don't provide initial suffixes so we only get the stream message
@@ -752,13 +714,7 @@ func TestAnnouncementReader_BoundaryValues(t *testing.T) {
 			require.NoError(t, err)
 
 			mockStream := &FakeQUICStream{
-				ReadFunc: func(p []byte) (n int, err error) {
-					if buf.Len() > 0 {
-						return buf.Read(p)
-					}
-					// Block after data
-					select {}
-				},
+				Reads: []streamResult{{Data: buf.Bytes()}, {Block: true}},
 			}
 
 			// Don't provide initial suffixes so we only get the stream message
@@ -821,9 +777,7 @@ func TestAnnouncementReader_StreamErrors(t *testing.T) {
 			testError := tt.setupError()
 
 			mockStream := &FakeQUICStream{
-				ReadFunc: func(p []byte) (int, error) {
-					return 0, testError
-				},
+				Reads: []streamResult{{Err: testError}},
 			}
 
 			ras := newAnnouncementReader(mockStream, "/test/", []string{"valid_announcement"})
