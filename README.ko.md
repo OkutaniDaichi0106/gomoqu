@@ -6,11 +6,11 @@
 
 QUIC을 통한 효율적인 미디어 스트리밍을 위해 MOQ Lite 사양을 구현한 Media over QUIC Transport(MOQT)의 Go 구현체입니다.
 
-[![Go](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/go.yml/badge.svg)](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/go.yml)
-[![Lint](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/lint.yml/badge.svg)](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/lint.yml)
-[![moq-web CI](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/moq-web-ci.yml/badge.svg)](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/moq-web-ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/OkutaniDaichi0106/gomoqt.svg)](https://pkg.go.dev/github.com/OkutaniDaichi0106/gomoqt)
-[![codecov](https://codecov.io/gh/OkutaniDaichi0106/gomoqt/branch/main/graph/badge.svg?token=4LZCD3FEU3)](https://codecov.io/gh/OkutaniDaichi0106/gomoqt)
+[![Go](https://github.com/qumo-dev/gomoqt/actions/workflows/go.yml/badge.svg)](https://github.com/qumo-dev/gomoqt/actions/workflows/go.yml)
+[![Lint](https://github.com/qumo-dev/gomoqt/actions/workflows/lint.yml/badge.svg)](https://github.com/qumo-dev/gomoqt/actions/workflows/lint.yml)
+[![moq-web CI](https://github.com/qumo-dev/gomoqt/actions/workflows/moq-web-ci.yml/badge.svg)](https://github.com/qumo-dev/gomoqt/actions/workflows/moq-web-ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/qumo-dev/gomoqt.svg)](https://pkg.go.dev/github.com/qumo-dev/gomoqt)
+[![codecov](https://codecov.io/gh/qumo-dev/gomoqt/branch/main/graph/badge.svg?token=4LZCD3FEU3)](https://codecov.io/gh/qumo-dev/gomoqt)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/qumo-dev/gomoqt)
 
 ## 목차
@@ -55,8 +55,9 @@ mage interop:go
 ### 함께 보기
 - [moqt/](moqt/) — 핵심 패키지 (프레임, 세션, 트랙 멀티플렉싱)
 - [msf/](msf/) — MSF 카탈로그, 델타, 타임라인 및 카탈로그-트랙 헬퍼 패키지
-- [quic/](quic/) — QUIC 래퍼 및 `examples/native_quic`
-- [webtransport/](webtransport/), [webtransport/webtransportgo/](webtransport/webtransportgo/), [moq-web/](moq-web/) — WebTransport 및 클라이언트 코드
+- [transport/](transport/) — 전송 계층 인터페이스 (StreamConn, Stream, SendStream, ReceiveStream)
+- [moqt/internal/](moqt/internal/) — 내부 QUIC (`quicgo`) 및 WebTransport (`webtransportgo`) 어댑터
+- [moq-web/](moq-web/) — TypeScript / WebTransport 클라이언트 구현
 - [examples/](examples/) — 샘플 앱 (broadcast, echo, native_quic, relay)
 
 ## 구성 요소
@@ -75,7 +76,7 @@ mage interop:go
 - **릴레이** (`examples/relay/`): 미디어 스트리밍 릴레이 기능
 
 ## 문서
-- [GoDoc](https://pkg.go.dev/github.com/OkutaniDaichi0106/gomoqt)
+- [GoDoc](https://pkg.go.dev/github.com/qumo-dev/gomoqt)
 - [MOQ Lite 사양](https://www.ietf.org/archive/id/draft-lcurley-moq-lite-04.html)
 - [MSF 패키지 README](msf/README.md)
 - [구현 현황](moqt/README.md) — 상세한 구현 진행 상황

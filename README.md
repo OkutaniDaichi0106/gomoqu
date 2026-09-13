@@ -6,11 +6,11 @@
 
 A Go implementation of Media over QUIC Transport (MOQT), specifically implementing the MOQ Lite specification for efficient media streaming over QUIC.
 
-[![Go](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/go.yml/badge.svg)](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/go.yml)
-[![Lint](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/lint.yml/badge.svg)](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/lint.yml)
-[![moq-web CI](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/moq-web-ci.yml/badge.svg)](https://github.com/OkutaniDaichi0106/gomoqt/actions/workflows/moq-web-ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/OkutaniDaichi0106/gomoqt.svg)](https://pkg.go.dev/github.com/OkutaniDaichi0106/gomoqt)
-[![codecov](https://codecov.io/gh/OkutaniDaichi0106/gomoqt/branch/main/graph/badge.svg?token=4LZCD3FEU3)](https://codecov.io/gh/OkutaniDaichi0106/gomoqt)
+[![Go](https://github.com/qumo-dev/gomoqt/actions/workflows/go.yml/badge.svg)](https://github.com/qumo-dev/gomoqt/actions/workflows/go.yml)
+[![Lint](https://github.com/qumo-dev/gomoqt/actions/workflows/lint.yml/badge.svg)](https://github.com/qumo-dev/gomoqt/actions/workflows/lint.yml)
+[![moq-web CI](https://github.com/qumo-dev/gomoqt/actions/workflows/moq-web-ci.yml/badge.svg)](https://github.com/qumo-dev/gomoqt/actions/workflows/moq-web-ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/qumo-dev/gomoqt.svg)](https://pkg.go.dev/github.com/qumo-dev/gomoqt)
+[![codecov](https://codecov.io/gh/qumo-dev/gomoqt/branch/main/graph/badge.svg?token=4LZCD3FEU3)](https://codecov.io/gh/qumo-dev/gomoqt)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/qumo-dev/gomoqt)
 
 ## Table of Contents
@@ -54,8 +54,9 @@ mage interop:go
 ### See also
 - [moqt/](moqt/) — core package (frames, session, track muxing)
 - [msf/](msf/) — MSF catalog, delta, timeline, and catalog-track helper package
-- [quic/](quic/) — QUIC wrapper and `examples/native_quic`
-- [webtransport/](webtransport/), [webtransport/webtransportgo/](webtransport/webtransportgo/), [moq-web/](moq-web/) — WebTransport and client-side code
+- [transport/](transport/) — transport layer interfaces (StreamConn, Stream, SendStream, ReceiveStream)
+- [moqt/internal/](moqt/internal/) — internal QUIC (`quicgo`) and WebTransport (`webtransportgo`) adapters
+- [moq-web/](moq-web/) — TypeScript / WebTransport client implementation
 - [examples/](examples/) — sample apps (broadcast, echo, native_quic, relay)
 
 ## Components
@@ -74,7 +75,7 @@ The [examples](examples) directory includes sample applications demonstrating ho
 - **Relay** (`examples/relay/`): Relay functionality for media streaming
 
 ## Documentation
-- [GoDoc](https://pkg.go.dev/github.com/OkutaniDaichi0106/gomoqt)
+- [GoDoc](https://pkg.go.dev/github.com/qumo-dev/gomoqt)
 - [MOQ Lite Specification](https://www.ietf.org/archive/id/draft-lcurley-moq-lite-04.html)
 - [MSF package README](msf/README.md)
 - [Implementation Status](moqt/README.md) — Detailed implementation progress
