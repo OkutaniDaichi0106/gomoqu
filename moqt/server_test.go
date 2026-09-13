@@ -15,7 +15,6 @@ import (
 
 	"github.com/quic-go/quic-go"
 	"github.com/qumo-dev/gomoqt/moqt/internal/message"
-	"github.com/qumo-dev/gomoqt/transport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -49,13 +48,9 @@ func withClientSetup(path string) func(*FakeStreamConn) {
 			panic(err)
 		}
 		data := buf.Bytes()
-		var delivered bool
-		conn.AcceptUniStreamFunc = func(context.Context) (transport.ReceiveStream, error) {
-			if delivered {
-				return nil, io.EOF
-			}
-			delivered = true
-			return &FakeQUICReceiveStream{ReadFunc: bytes.NewReader(data).Read}, nil
+		conn.AcceptUniStreams = []recvStreamResult{
+			{Stream: &FakeQUICReceiveStream{Reads: []streamResult{{Data: data}}}},
+			{Err: io.EOF},
 		}
 	}
 }
@@ -819,12 +814,9 @@ func TestServer_handleNativeQUIC_IncrementsNativeSessions(t *testing.T) {
 	}
 	s.init()
 
-	conn := newTestNativeQUICConn(t)
+	conn := newTestNativeQUICConn(t, withClientSetup("/live"))
 	err := s.ServeQUICConn(conn)
-	// handleNativeQUIC always returns the "no native QUIC handler configured"
-	// sentinel regardless of whether Handler was called; see
-	// TestServer_ServeQUICConn_NativeQUICCallsHandlerAndReturnsError.
-	assert.Error(t, err)
+	assert.NoError(t, err)
 
 	select {
 	case <-called:

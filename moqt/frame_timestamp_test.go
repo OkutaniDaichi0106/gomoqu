@@ -23,7 +23,7 @@ func TestGroupWriterReader_TimestampRoundTrip(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var buf bytes.Buffer
 
-			writer := &GroupWriter{stream: &FakeQUICSendStream{WriteFunc: buf.Write}}
+			writer := &GroupWriter{stream: &FakeQUICSendStream{WriteTo: &buf}}
 			for i, ts := range tt.timestamps {
 				frame := NewFrame(8)
 				frame.Timestamp = ts
@@ -31,7 +31,7 @@ func TestGroupWriterReader_TimestampRoundTrip(t *testing.T) {
 				require.NoError(t, writer.WriteFrame(frame))
 			}
 
-			reader := &GroupReader{stream: &FakeQUICReceiveStream{ReadFunc: buf.Read}}
+			reader := &GroupReader{stream: &FakeQUICReceiveStream{ReadFrom: &buf}}
 			got := NewFrame(8)
 			for i, want := range tt.timestamps {
 				require.NoError(t, reader.ReadFrame(got))

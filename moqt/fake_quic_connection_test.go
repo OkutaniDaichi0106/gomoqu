@@ -219,9 +219,6 @@ func (m *FakeStreamConn) OpenStreamSync(ctx context.Context) (transport.Stream, 
 }
 
 func (m *FakeStreamConn) OpenUniStreamSync(ctx context.Context) (transport.SendStream, error) {
-	if m.OpenUniStreamSyncFunc != nil {
-		return m.OpenUniStreamSyncFunc(ctx)
-	}
 	m.mu.Lock()
 	if m.closeErr != nil {
 		err := m.closeErr

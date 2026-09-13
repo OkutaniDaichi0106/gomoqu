@@ -277,6 +277,8 @@ export class ReceiveSubscribeStream {
 		} finally {
 			this.#readMu.unlock();
 		}
+	}
+
 	/**
 	 * Write SUBSCRIBE_OK with the resolved absolute start group.
 	 */

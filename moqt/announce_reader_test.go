@@ -71,9 +71,7 @@ func TestAnnouncementReader_ReceiveAnnouncement(t *testing.T) {
 					// Block forever on read so the only cancellation signal is
 					// the caller's context (a read EOF would independently
 					// fatal-cancel the reader under draft-05 error handling).
-					ReadFunc: func([]byte) (int, error) {
-						select {}
-					},
+					Reads: []streamResult{{Block: true}},
 				}
 				// Don't provide initial suffixes so that ReceiveAnnouncement will wait
 				return newAnnouncementReader(mockStream, "/test/", []string{})

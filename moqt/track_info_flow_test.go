@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/qumo-dev/gomoqt/moqt/internal/message"
-	"github.com/qumo-dev/gomoqt/transport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -39,16 +38,14 @@ func TestSession_TrackInfo(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			var written bytes.Buffer
 			var response bytes.Buffer
 			require.NoError(t, tt.response.Encode(&response))
 
 			stream := &FakeQUICStream{
-				WriteFunc: written.Write,
-				ReadFunc:  response.Read,
+				Reads: []streamResult{{Data: response.Bytes()}},
 			}
 			conn := &FakeStreamConn{
-				OpenStreamFunc: func() (transport.Stream, error) { return stream, nil },
+				OpenStreams: []biStreamResult{{Stream: stream}},
 			}
 			sess := newTestSession(conn)
 			defer sess.CloseWithError(NoError, "")
@@ -63,7 +60,7 @@ func TestSession_TrackInfo(t *testing.T) {
 			assert.Equal(t, tt.expected, info)
 
 			// Verify the request wire bytes: stream type then TRACK message.
-			r := bytes.NewReader(written.Bytes())
+			r := bytes.NewReader(stream.Written())
 			var st message.StreamType
 			require.NoError(t, st.Decode(r))
 			assert.Equal(t, message.StreamTypeTrack, st)
@@ -142,29 +139,23 @@ func TestSession_HandleTrackStream(t *testing.T) {
 				TrackName:     tt.track,
 			}.Encode(&request))
 
-			var written bytes.Buffer
-			var reset bool
 			stream := &FakeQUICStream{
-				ReadFunc:  request.Read,
-				WriteFunc: written.Write,
-				CancelWriteFunc: func(transport.StreamErrorCode) {
-					reset = true
-				},
+				Reads: []streamResult{{Data: request.Bytes()}},
 			}
 
 			conn := &FakeStreamConn{}
-			sess := newSession(conn, mux, nil, nil, nil, nil, nil, sessionSetup{})
+			sess := newSession(conn, mux, nil, nil, nil, nil, nil, sessionSetup{}, nil)
 			defer sess.CloseWithError(NoError, "")
 
 			sess.handleTrackStream(stream)
 
 			if tt.wantReset {
-				assert.True(t, reset, "stream should be reset for an unknown track")
+				assert.NotEmpty(t, stream.CancelWriteCodes(), "stream should be reset for an unknown track")
 				return
 			}
 
 			var tim message.TrackInfoMessage
-			require.NoError(t, tim.Decode(&written))
+			require.NoError(t, tim.Decode(bytes.NewReader(stream.Written())))
 			assert.Equal(t, tt.expected, tim)
 		})
 	}

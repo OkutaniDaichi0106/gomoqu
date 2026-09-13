@@ -2,6 +2,7 @@ package moqt
 
 import (
 	"bytes"
+	"io"
 	"testing"
 	"time"
 
@@ -91,7 +92,7 @@ func TestSendSubscribeStream_ReadSubscribeResponses_EndAndDrop(t *testing.T) {
 			return (&message.SubscribeDropMessage{GroupStart: 2, GroupEnd: 3, ErrorCode: 4}).Encode(b)
 		})
 
-	stream := &FakeQUICStream{ReadFunc: bytes.NewReader(buf.Bytes()).Read}
+	stream := &FakeQUICStream{Reads: []streamResult{{Data: buf.Bytes()}, {Err: io.EOF}}}
 	substr := newSendSubscribeStream(SubscribeID(1), stream, &SubscribeConfig{})
 
 	done := make(chan struct{})

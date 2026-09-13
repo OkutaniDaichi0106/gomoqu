@@ -838,6 +838,7 @@ func TestSession_LazyMonitor_NoGoroutineBeforeProbe(t *testing.T) {
 	// The whole point of the lazy bitrate monitor: a session that is never
 	// probed must not run the background monitor goroutine. Verify by inspecting
 	// the live goroutine stacks — none should be blocked in bitrateTracker.monitor.
+	conn := &FakeStreamConn{}
 	conn.Stats = quic.ConnectionStats{BytesSent: 1}
 	sess := newSession(conn, NewTrackMux(0), nil, nil, nil, nil, nil, sessionSetup{}, nil)
 	t.Cleanup(func() { _ = sess.CloseWithError(NoError, "") })
@@ -2609,7 +2610,7 @@ func TestSession_ProbeMonitor_WritesBitrateBackOnInboundStream(t *testing.T) {
 	// Each sample advances BytesSent so measureBitrate sees a non-zero delta.
 	conn.StatsBytesSentStep = 100_000
 	cfg := &Config{ProbeInterval: 5 * time.Millisecond, ProbeMaxAge: time.Hour, ProbeMaxDelta: 1000.0}
-	session := newSession(conn, NewTrackMux(0), nil, cfg, nil, nil, nil, nil)
+	session := newSession(conn, NewTrackMux(0), nil, cfg, nil, nil, nil, sessionSetup{}, nil)
 	t.Cleanup(func() { _ = session.CloseWithError(NoError, "") })
 
 	// Inbound probe stream: StreamTypeProbe + one ProbeMessage, then block so

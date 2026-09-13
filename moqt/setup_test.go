@@ -2,13 +2,10 @@ package moqt
 
 import (
 	"bytes"
-	"context"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/qumo-dev/gomoqt/moqt/internal/message"
-	"github.com/qumo-dev/gomoqt/transport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,37 +16,21 @@ import (
 func collectSetupStream(tb testing.TB) (*FakeStreamConn, func() []byte) {
 	tb.Helper()
 
-	var mu sync.Mutex
-	var buf bytes.Buffer
-	closed := make(chan struct{})
-
-	stream := &FakeQUICSendStream{
-		WriteFunc: func(p []byte) (int, error) {
-			mu.Lock()
-			defer mu.Unlock()
-			return buf.Write(p)
-		},
-		CloseFunc: func() error {
-			close(closed)
-			return nil
-		},
-	}
+	stream := &FakeQUICSendStream{}
 	conn := &FakeStreamConn{
-		OpenUniStreamSyncFunc: func(ctx context.Context) (transport.SendStream, error) {
-			return stream, nil
+		OpenUniStreams: []sendStreamResult{
+			{Stream: stream},
 		},
 	}
 
 	wait := func() []byte {
 		tb.Helper()
 		select {
-		case <-closed:
+		case <-stream.Context().Done():
 		case <-time.After(time.Second):
 			tb.Fatal("timeout waiting for setup stream FIN")
 		}
-		mu.Lock()
-		defer mu.Unlock()
-		return append([]byte(nil), buf.Bytes()...)
+		return stream.Written()
 	}
 
 	return conn, wait
@@ -72,7 +53,7 @@ func TestSession_OpenSetupStream_QUICClientSendsPath(t *testing.T) {
 	conn, wait := collectSetupStream(t)
 
 	role := sessionSetup{setupPath: "/live"}
-	sess := newSession(conn, NewTrackMux(0), nil, nil, nil, nil, nil, role)
+	sess := newSession(conn, NewTrackMux(0), nil, nil, nil, nil, nil, role, nil)
 	defer sess.CloseWithError(NoError, "")
 
 	sm := decodeSetupBytes(t, wait())
@@ -85,7 +66,7 @@ func TestSession_OpenSetupStream_WebTransportClientOmitsPath(t *testing.T) {
 	conn, wait := collectSetupStream(t)
 
 	// WebTransport: no setupPath → Path is omitted.
-	sess := newSession(conn, NewTrackMux(0), nil, nil, nil, nil, nil, sessionSetup{})
+	sess := newSession(conn, NewTrackMux(0), nil, nil, nil, nil, nil, sessionSetup{}, nil)
 	defer sess.CloseWithError(NoError, "")
 
 	sm := decodeSetupBytes(t, wait())
@@ -96,7 +77,7 @@ func TestSession_OpenSetupStream_WebTransportClientOmitsPath(t *testing.T) {
 func TestSession_OpenSetupStream_ServerOmitsPath(t *testing.T) {
 	conn, wait := collectSetupStream(t)
 
-	sess := newSession(conn, NewTrackMux(0), nil, nil, nil, nil, nil, sessionSetup{})
+	sess := newSession(conn, NewTrackMux(0), nil, nil, nil, nil, nil, sessionSetup{}, nil)
 	defer sess.CloseWithError(NoError, "")
 
 	sm := decodeSetupBytes(t, wait())
@@ -138,12 +119,12 @@ func TestSession_HandleSetupStream(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			conn := &FakeStreamConn{}
-			sess := newSession(conn, NewTrackMux(0), nil, nil, nil, nil, nil, sessionSetup{})
+			sess := newSession(conn, NewTrackMux(0), nil, nil, nil, nil, nil, sessionSetup{}, nil)
 			defer sess.CloseWithError(NoError, "")
 
 			var buf bytes.Buffer
 			require.NoError(t, tt.setup().Encode(&buf))
-			stream := &FakeQUICReceiveStream{ReadFunc: buf.Read}
+			stream := &FakeQUICReceiveStream{Reads: []streamResult{{Data: buf.Bytes()}}}
 
 			sess.handleSetupStream(stream)
 
@@ -170,13 +151,13 @@ func TestSession_HandleSetupStream(t *testing.T) {
 
 func TestSession_HandleSetupStream_Duplicate(t *testing.T) {
 	conn := &FakeStreamConn{}
-	sess := newSession(conn, NewTrackMux(0), nil, nil, nil, nil, nil, sessionSetup{})
+	sess := newSession(conn, NewTrackMux(0), nil, nil, nil, nil, nil, sessionSetup{}, nil)
 	defer sess.CloseWithError(NoError, "")
 
 	encode := func() *FakeQUICReceiveStream {
 		var buf bytes.Buffer
 		require.NoError(t, message.SetupMessage{}.Encode(&buf))
-		return &FakeQUICReceiveStream{ReadFunc: buf.Read}
+		return &FakeQUICReceiveStream{Reads: []streamResult{{Data: buf.Bytes()}}}
 	}
 
 	sess.handleSetupStream(encode())
@@ -197,7 +178,7 @@ func TestSession_HandleSetupStream_Duplicate(t *testing.T) {
 
 func TestSession_Probe_PeerWithoutProbeCapability(t *testing.T) {
 	conn := &FakeStreamConn{}
-	sess := newSession(conn, NewTrackMux(0), nil, nil, nil, nil, nil, sessionSetup{})
+	sess := newSession(conn, NewTrackMux(0), nil, nil, nil, nil, nil, sessionSetup{}, nil)
 	defer sess.CloseWithError(NoError, "")
 
 	markPeerSetupReceived(sess, message.ProbeLevelNone)

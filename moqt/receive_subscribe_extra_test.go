@@ -13,9 +13,8 @@ import (
 // captured in a buffer for decoding back into typed messages.
 func newBufReceiveStream(t *testing.T) (*receiveSubscribeStream, *bytes.Buffer) {
 	t.Helper()
-	mockStream := &FakeQUICStream{}
 	var buf bytes.Buffer
-	mockStream.WriteFunc = buf.Write
+	mockStream := &FakeQUICStream{WriteTo: &buf}
 	return newReceiveSubscribeStream(SubscribeID(1), mockStream, &SubscribeConfig{}), &buf
 }
 
