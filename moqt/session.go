@@ -981,6 +981,7 @@ func (sess *Session) TrackInfo(ctx context.Context, path BroadcastPath, name Tra
 	_ = stream.Close()
 
 	if tim.Timescale == 0 {
+		cancelStreamWithError(stream, transport.StreamErrorCode(SubscribeErrorCodeInternal))
 		return nil, errors.New("moqt: received TRACK_INFO with zero Timescale")
 	}
 

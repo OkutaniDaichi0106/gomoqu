@@ -641,6 +641,7 @@ export class Session {
 		await stream.writable.close().catch(() => {});
 
 		if (rsp.timescale === 0) {
+			cancelStreamWithError(stream, SessionErrorCode.InternalError);
 			return [undefined, new Error("moq: received TRACK_INFO with zero Timescale")];
 		}
 
